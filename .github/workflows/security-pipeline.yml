@@ -59,7 +59,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run tests with coverage and enforce threshold
+      - name: Enforce coverage threshold
         run: |
           pytest tests/ \
             --cov=scanner \
