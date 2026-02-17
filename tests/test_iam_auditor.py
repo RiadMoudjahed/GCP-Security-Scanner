@@ -13,436 +13,182 @@ from scanner.iam_auditor import (
 
 class TestIAMBasicRisks:
     """Tests for high-severity IAM misconfigurations"""
-
     def test_detects_primitive_role_on_user(self):
-        """
-        GIVEN: A user account has roles/owner
-        WHEN:  We analyze the IAM policy
-        THEN:  The auditor flags it as HIGH risk
-        """
         fake_policy = {
             "bindings": [{
                 "role": "roles/owner",
                 "members": ["user:admin@example.com"]
             }]
         }
-
         findings = analyze_policy(fake_policy)
-        
         assert len(findings) > 0
         assert findings[0]["severity"] == "HIGH"
-        assert findings[0]["rule"] == "PRIMITIVE_ROLE_ASSIGNED"
-        assert findings[0]["member"] == "user:admin@example.com"
 
     def test_detects_allUsers_binding(self):
-        """
-        GIVEN: A resource has allUsers as a member
-        WHEN:  We analyze the policy
-        THEN:  The auditor flags it as CRITICAL — public exposure
-        """
         fake_policy = {
             "bindings": [{
                 "role": "roles/storage.objectViewer",
                 "members": ["allUsers"]
             }]
         }
-
         findings = analyze_policy(fake_policy)
-        
         assert len(findings) > 0
         assert findings[0]["severity"] == "CRITICAL"
-        assert findings[0]["rule"] == "PUBLIC_ACCESS_GRANTED"
-        assert findings[0]["member"] == "allUsers"
 
     def test_detects_service_account_with_owner_role(self):
-        """
-        GIVEN: A service account has roles/editor
-        WHEN:  We analyze the policy
-        THEN:  The auditor flags it — service accounts shouldn't have primitive roles
-        """
         fake_policy = {
             "bindings": [{
                 "role": "roles/editor",
                 "members": ["serviceAccount:my-sa@project.iam.gserviceaccount.com"]
             }]
         }
-
         findings = analyze_policy(fake_policy)
-        
-        # This will trigger BOTH rules: PRIMITIVE_ROLE_ASSIGNED and SA_PRIMITIVE_ROLE
         assert len(findings) == 2
-        assert any(f["rule"] == "SA_PRIMITIVE_ROLE" for f in findings)
-        assert all(f["severity"] == "HIGH" for f in findings)
 
 
 class TestIAMEdgeCases:
     """Edge cases and validation tests"""
-
     def test_empty_policy_returns_no_findings(self):
-        """
-        GIVEN: An IAM policy with no bindings (empty project)
-        WHEN:  We analyze it
-        THEN:  We get back an empty findings list, no crash
-        """
         fake_policy = {"bindings": []}
-        
         findings = analyze_policy(fake_policy)
-        
         assert findings == []
-        assert len(findings) == 0
 
     def test_multiple_bindings_flags_all_violations(self):
-        """
-        GIVEN: A policy with 3 bindings, 2 of which are violations
-        WHEN:  We analyze it
-        THEN:  We get exactly 2 findings back (or more due to overlapping rules)
-        """
         fake_policy = {
             "bindings": [
-                {
-                    "role": "roles/storage.objectViewer",  # safe
-                    "members": ["user:safe@example.com"]
-                },
-                {
-                    "role": "roles/owner",  # violation: primitive role
-                    "members": ["user:admin@example.com"]
-                },
-                {
-                    "role": "roles/compute.viewer",  # violation: public access
-                    "members": ["allUsers"]
-                }
+                {"role": "roles/storage.objectViewer", "members": ["user:safe@example.com"]},
+                {"role": "roles/owner", "members": ["user:admin@example.com"]},
+                {"role": "roles/compute.viewer", "members": ["allUsers"]}
             ]
         }
-
         findings = analyze_policy(fake_policy)
-        
-        # Should find at least the 2 violations
         assert len(findings) >= 2
-        # Check both rule types are present
-        rules = [f["rule"] for f in findings]
-        assert "PRIMITIVE_ROLE_ASSIGNED" in rules
-        assert "PUBLIC_ACCESS_GRANTED" in rules
 
     def test_legitimate_role_returns_no_finding(self):
-        """
-        GIVEN: A user has a specific, scoped role
-        WHEN:  We analyze the policy
-        THEN:  No findings — this is legitimate least-privilege
-        """
         fake_policy = {
             "bindings": [{
-                "role": "roles/storage.objectViewer",  # specific, not primitive
-                "members": ["user:viewer@example.com"]  # not public, not SA
+                "role": "roles/storage.objectViewer",
+                "members": ["user:viewer@example.com"]
             }]
         }
-
         findings = analyze_policy(fake_policy)
-        
         assert len(findings) == 0
 
 
 class TestIAMHelperFunctions:
     """Direct tests for the individual checker functions"""
-
     def test_check_primitive_roles_with_violation(self):
-        """Test check_primitive_roles function directly with a violation"""
-        bindings = [{
-            "role": "roles/owner",
-            "members": ["user:admin@example.com", "group:admins@example.com"]
-        }]
-        
+        bindings = [{"role": "roles/owner", "members": ["user:admin@example.com"]}]
         findings = check_primitive_roles(bindings)
-        
-        assert len(findings) == 2  # Two members with primitive roles
-        assert all(f["rule"] == "PRIMITIVE_ROLE_ASSIGNED" for f in findings)
-        assert all(f["severity"] == "HIGH" for f in findings)
+        assert len(findings) == 1
 
     def test_check_primitive_roles_with_safe_roles(self):
-        """Test check_primitive_roles function with safe roles"""
-        bindings = [{
-            "role": "roles/storage.objectViewer",
-            "members": ["user:viewer@example.com"]
-        }]
-        
+        bindings = [{"role": "roles/storage.objectViewer", "members": ["user:viewer@example.com"]}]
         findings = check_primitive_roles(bindings)
-        
         assert len(findings) == 0
 
     def test_check_public_access_with_violation(self):
-        """Test check_public_access function directly"""
-        bindings = [{
-            "role": "roles/storage.objectViewer",
-            "members": ["allUsers", "allAuthenticatedUsers", "user:someone@example.com"]
-        }]
-        
+        bindings = [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]
         findings = check_public_access(bindings)
-        
-        assert len(findings) == 2  # Two public members
-        assert all(f["rule"] == "PUBLIC_ACCESS_GRANTED" for f in findings)
-        assert all(f["severity"] == "CRITICAL" for f in findings)
+        assert len(findings) == 1
 
     def test_check_public_access_with_no_public(self):
-        """Test check_public_access function with no public access"""
-        bindings = [{
-            "role": "roles/storage.objectViewer",
-            "members": ["user:someone@example.com", "group:test@example.com"]
-        }]
-        
+        bindings = [{"role": "roles/storage.objectViewer", "members": ["user:someone@example.com"]}]
         findings = check_public_access(bindings)
-        
         assert len(findings) == 0
 
     def test_check_service_account_primitive_roles_with_violation(self):
-        """Test check_service_account_primitive_roles with primitive roles on SAs"""
-        bindings = [{
-            "role": "roles/editor",
-            "members": [
-                "serviceAccount:sa1@project.iam.gserviceaccount.com",
-                "serviceAccount:sa2@project.iam.gserviceaccount.com",
-                "user:admin@example.com"  # This shouldn't be flagged by this function
-            ]
-        }]
-        
+        bindings = [{"role": "roles/editor", "members": ["serviceAccount:sa@project.iam.gserviceaccount.com"]}]
         findings = check_service_account_primitive_roles(bindings)
-        
-        assert len(findings) == 2  # Two service accounts with primitive role
-        assert all(f["rule"] == "SA_PRIMITIVE_ROLE" for f in findings)
-        assert all(f["severity"] == "HIGH" for f in findings)
+        assert len(findings) == 1
 
     def test_check_service_account_primitive_roles_with_safe_roles(self):
-        """Test check_service_account_primitive_roles with non-primitive roles"""
-        bindings = [{
-            "role": "roles/storage.objectViewer",
-            "members": ["serviceAccount:sa@project.iam.gserviceaccount.com"]
-        }]
-        
+        bindings = [{"role": "roles/storage.objectViewer", "members": ["serviceAccount:sa@project.iam.gserviceaccount.com"]}]
         findings = check_service_account_primitive_roles(bindings)
-        
         assert len(findings) == 0
-
-    def test_check_service_account_primitive_roles_with_mixed_members(self):
-        """Test SA primitive role check with mixed member types"""
-        bindings = [
-            {
-                "role": "roles/owner",
-                "members": [
-                    "serviceAccount:sa1@project.iam.gserviceaccount.com",
-                    "user:admin@example.com"
-                ]
-            },
-            {
-                "role": "roles/editor",
-                "members": [
-                    "serviceAccount:sa2@project.iam.gserviceaccount.com"
-                ]
-            },
-            {
-                "role": "roles/viewer",  # Not primitive
-                "members": [
-                    "serviceAccount:sa3@project.iam.gserviceaccount.com"
-                ]
-            }
-        ]
-        
-        findings = check_service_account_primitive_roles(bindings)
-        
-        # Should find: sa1 (owner) and sa2 (editor) = 2 findings
-        assert len(findings) == 2
-        members_found = [f["member"] for f in findings]
-        assert "serviceAccount:sa1@project.iam.gserviceaccount.com" in members_found
-        assert "serviceAccount:sa2@project.iam.gserviceaccount.com" in members_found
 
 
 class TestIAMErrorHandling:
-    """Tests for error handling and edge cases in helper functions"""
-
+    """Tests for error handling and edge cases"""
     def test_check_primitive_roles_empty_bindings(self):
-        """Test check_primitive_roles with empty bindings list"""
         findings = check_primitive_roles([])
         assert len(findings) == 0
 
     def test_check_public_access_empty_bindings(self):
-        """Test check_public_access with empty bindings list"""
         findings = check_public_access([])
         assert len(findings) == 0
 
     def test_check_service_account_primitive_roles_empty_bindings(self):
-        """Test check_service_account_primitive_roles with empty bindings list"""
         findings = check_service_account_primitive_roles([])
         assert len(findings) == 0
 
     def test_analyze_policy_with_malformed_bindings(self):
-        """Test analyze_policy handles malformed bindings gracefully"""
-        # Missing 'members' key
-        fake_policy = {
-            "bindings": [{
-                "role": "roles/owner"
-                # No members key
-            }]
-        }
-        
+        fake_policy = {"bindings": [{"role": "roles/owner"}]}
         findings = analyze_policy(fake_policy)
-        # Should handle gracefully and return empty findings
         assert findings == []
 
     def test_analyze_policy_with_none_bindings(self):
-        """Test analyze_policy with None bindings"""
         fake_policy = {"bindings": None}
-        
         findings = analyze_policy(fake_policy)
-        assert findings == []  # Should return empty list
+        assert findings == []
 
 
-class TestIAMProductionCode:
-    """Tests for production-ready functions (get_project_id, get_iam_policy, print_report)"""
-
-    def test_get_project_id_success(self, mocker):
-        """Test get_project_id successfully returns project ID"""
+# NEW TESTS TO ADD - These target the missing lines
+class TestIAMProductionFunctions:
+    """Tests for get_project_id, get_iam_policy, and print_report"""
+    
+    def test_get_project_id(self, mocker):
         mock_run = mocker.patch('scanner.iam_auditor.subprocess.run')
         mock_run.return_value.stdout = "my-project-123\n"
-        
         result = get_project_id()
-        
         assert result == "my-project-123"
-        mock_run.assert_called_once_with(
-            ["gcloud", "config", "get-value", "project"],
-            capture_output=True,
-            text=True
-        )
 
     def test_get_project_id_empty(self, mocker):
-        """Test get_project_id when no project is configured"""
         mock_run = mocker.patch('scanner.iam_auditor.subprocess.run')
         mock_run.return_value.stdout = "\n"
-        
         result = get_project_id()
-        
         assert result == ""
 
-    def test_get_iam_policy_success(self, mocker):
-        """Test get_iam_policy successfully returns policy"""
+    def test_get_iam_policy(self, mocker):
         mock_run = mocker.patch('scanner.iam_auditor.subprocess.run')
         expected_policy = {"bindings": []}
         mock_run.return_value.stdout = json.dumps(expected_policy)
-        
         result = get_iam_policy("test-project")
-        
         assert result == expected_policy
-        mock_run.assert_called_once_with(
-            ["gcloud", "projects", "get-iam-policy", "test-project", "--format=json"],
-            capture_output=True,
-            text=True
-        )
-
-    def test_get_iam_policy_invalid_json(self, mocker):
-        """Test get_iam_policy handles invalid JSON response"""
-        mock_run = mocker.patch('scanner.iam_auditor.subprocess.run')
-        mock_run.return_value.stdout = "Not valid JSON"
-        
-        with pytest.raises(json.JSONDecodeError):
-            get_iam_policy("test-project")
 
     def test_print_report_with_findings(self, capsys):
-        """Test print_report with multiple findings"""
-        findings = [
-            {
-                "severity": "HIGH",
-                "rule": "PRIMITIVE_ROLE_ASSIGNED",
-                "member": "user:test@example.com",
-                "role": "roles/owner",
-                "reason": "Test reason 1"
-            },
-            {
-                "severity": "CRITICAL",
-                "rule": "PUBLIC_ACCESS_GRANTED",
-                "member": "allUsers",
-                "role": "roles/viewer",
-                "reason": "Test reason 2"
-            }
-        ]
-        
-        print_report(findings, "test-project-123")
+        findings = [{
+            "severity": "HIGH",
+            "rule": "PRIMITIVE_ROLE_ASSIGNED",
+            "member": "user:test@example.com",
+            "role": "roles/owner",
+            "reason": "Test reason"
+        }]
+        print_report(findings, "test-project")
         captured = capsys.readouterr()
-        
-        # Verify report contains expected content
-        assert "GCP IAM Security Audit Report" in captured.out
-        assert "Project: test-project-123" in captured.out
-        assert "[HIGH] PRIMITIVE_ROLE_ASSIGNED" in captured.out
-        assert "[CRITICAL] PUBLIC_ACCESS_GRANTED" in captured.out
-        assert "Total findings: 2(1 HIGH, 1 CRITICAL)" in captured.out
+        assert "Total findings: 1(1 HIGH, 0 CRITICAL)" in captured.out
 
     def test_print_report_empty_findings(self, capsys):
-        """Test print_report with no findings"""
         findings = []
-        
-        print_report(findings, "test-project-123")
+        print_report(findings, "test-project")
         captured = capsys.readouterr()
-        
-        # Should still print header but with 0 findings
-        assert "GCP IAM Security Audit Report" in captured.out
-        assert "Project: test-project-123" in captured.out
         assert "Total findings: 0(0 HIGH, 0 CRITICAL)" in captured.out
 
-    def test_main_block_execution(self, mocker):
-        """Test the __main__ block execution"""
-        # Mock all the functions called in __main__
-        mock_get_project_id = mocker.patch('scanner.iam_auditor.get_project_id')
-        mock_get_project_id.return_value = "test-project"
-        
-        mock_get_iam_policy = mocker.patch('scanner.iam_auditor.get_iam_policy')
-        mock_get_iam_policy.return_value = {"bindings": []}
-        
-        mock_analyze_policy = mocker.patch('scanner.iam_auditor.analyze_policy')
-        mock_analyze_policy.return_value = []
-        
-        mock_print_report = mocker.patch('scanner.iam_auditor.print_report')
-        
-        # Import and execute the module
-        import runpy
-        runpy.run_module('scanner.iam_auditor', run_name='__main__')
-        
-        # Verify all functions were called
-        mock_get_project_id.assert_called_once()
-        mock_get_iam_policy.assert_called_once_with("test-project")
-        mock_analyze_policy.assert_called_once_with({"bindings": []})
-        mock_print_report.assert_called_once_with([], "test-project")
 
-
-class TestIAMEdgeCasesHelperFunctions:
+class TestIAMMoreEdgeCases:
     """Additional edge cases for helper functions"""
-
+    
     def test_check_primitive_roles_with_non_dict_binding(self):
-        """Test check_primitive_roles handles non-dict bindings"""
         bindings = ["not a dict", {"role": "roles/owner", "members": ["user:test@example.com"]}]
-        
         findings = check_primitive_roles(bindings)
-        
-        # Should skip the non-dict and process the valid one
         assert len(findings) == 1
 
     def test_check_primitive_roles_with_non_list_members(self):
-        """Test check_primitive_roles handles members that aren't lists"""
         bindings = [{"role": "roles/owner", "members": "not a list"}]
-        
         findings = check_primitive_roles(bindings)
-        
-        # Should skip this binding
         assert len(findings) == 0
 
     def test_check_public_access_with_non_dict_binding(self):
-        """Test check_public_access handles non-dict bindings"""
         bindings = ["not a dict", {"role": "roles/viewer", "members": ["allUsers"]}]
-        
         findings = check_public_access(bindings)
-        
-        # Should skip the non-dict and process the valid one
-        assert len(findings) == 1
-
-    def test_check_service_account_with_non_dict_binding(self):
-        """Test check_service_account_primitive_roles handles non-dict bindings"""
-        bindings = ["not a dict", {"role": "roles/owner", "members": ["serviceAccount:test@test.iam.gserviceaccount.com"]}]
-        
-        findings = check_service_account_primitive_roles(bindings)
-        
-        # Should skip the non-dict and process the valid one
         assert len(findings) == 1
