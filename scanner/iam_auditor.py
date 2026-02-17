@@ -150,8 +150,8 @@ def print_report(findings, project_id):
         elif finding["severity"] == "CRITICAL":
             count_critical += 1
         
-        total = count_high + count_critical
-        print(f"\nTotal findings: {total}({count_high} HIGH, {count_critical} CRITICAL)")
+    total = count_high + count_critical
+    print(f"\nTotal findings: {total}({count_high} HIGH, {count_critical} CRITICAL)")
 
 
 if __name__ == "__main__":
