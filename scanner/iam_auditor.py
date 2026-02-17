@@ -39,10 +39,19 @@ def check_primitive_roles(bindings):
     Returns a list of findings.
     """
     findings = []
+    
+    if not bindings or not isinstance(bindings, list):
+        return findings
 
     for binding in bindings:
+        if not isinstance(binding, dict) or "role" not in binding or "members" not in binding:
+            continue
+            
         role = binding["role"]
         members = binding["members"]
+        
+        if not isinstance(members, list):
+            continue
 
         if role in PRIMITIVE_ROLES:
             for member in members:
@@ -66,9 +75,18 @@ def check_public_access(bindings):
     """
     findings = []
     
+    if not bindings or not isinstance(bindings, list):
+        return findings
+    
     for binding in bindings:
+        if not isinstance(binding, dict) or "role" not in binding or "members" not in binding:
+            continue
+            
         role = binding["role"]
         members = binding["members"]
+        
+        if not isinstance(members, list):
+            continue
 
         for member in members:
             if member in PUBLIC_MEMBERS:
@@ -92,10 +110,19 @@ def check_service_account_primitive_roles(bindings):
     A service account member starts with: "serviceAccount:"
     """
     findings = []
+    
+    if not bindings or not isinstance(bindings, list):
+        return findings
 
     for binding in bindings:
+        if not isinstance(binding, dict) or "role" not in binding or "members" not in binding:
+            continue
+            
         role = binding["role"]
         members = binding["members"]
+        
+        if not isinstance(members, list):
+            continue
 
         for member in members:
             if role in PRIMITIVE_ROLES and member.startswith("serviceAccount:"):
@@ -106,8 +133,6 @@ def check_service_account_primitive_roles(bindings):
                     "role": role,
                     "reason": f"{member} has primitive role {role}. Use specific roles instead."
                 })
-                    
-
 
     return findings
 
@@ -115,8 +140,10 @@ def check_service_account_primitive_roles(bindings):
 def analyze_policy(policy):
     """
     Master function. Runs all checks and returns combined findings.
-    I give you this one — it shows you how the pieces connect.
     """
+    if not isinstance(policy, dict):
+        return []
+        
     bindings = policy.get("bindings", [])
     
     findings = []
@@ -125,7 +152,6 @@ def analyze_policy(policy):
     findings.extend(check_service_account_primitive_roles(bindings))
     
     return findings
-
 
 
 def print_report(findings, project_id):
