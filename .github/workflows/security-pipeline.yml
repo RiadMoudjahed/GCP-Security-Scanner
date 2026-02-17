@@ -1,0 +1,77 @@
+name: GCP Security Scanner CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 1: Security Scan (Bandit)
+  # Scans Python code for known security issues
+  # If this fails, Job 2 will NOT run
+  # ─────────────────────────────────────────
+  security-scan:
+    name: Bandit Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Bandit
+        run: pip install bandit==1.7.7
+
+      - name: Run Bandit
+        run: |
+          bandit -r scanner/ \
+            --severity-level medium \
+            --confidence-level medium \
+            -f txt \
+            --exit-zero
+        # --exit-zero means: report issues but don't fail the pipeline YET
+        # Once you're comfortable, remove --exit-zero to enforce it strictly
+
+  # ─────────────────────────────────────────
+  # JOB 2: Tests (Pytest)
+  # Only runs if Job 1 (Bandit) passes
+  # ─────────────────────────────────────────
+  run-tests:
+    name: Pytest + Coverage
+    runs-on: ubuntu-latest
+    needs: security-scan      # ← This is the dependency. Job 2 waits for Job 1.
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=scanner \
+            --cov-report=term-missing \
+            -v
+
+      # ─────────────────────────────────────
+      # YOUR JOB: Add the coverage threshold step here
+      # 
+      # Hint: pytest-cov has a --cov-fail-under flag
+      # Your task: make the pipeline FAIL if coverage drops below 70%
+      # 
+      # TODO: Add one more "run" step below this comment
+      # that enforces the 70% minimum coverage threshold
+      # ─────────────────────────────────────
