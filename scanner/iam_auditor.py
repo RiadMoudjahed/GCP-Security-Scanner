@@ -130,7 +130,7 @@ def analyze_policy(policy):
 count_high = 0
 count_critical = 0
 def print_report(findings, project_id):
-  """Print a clean report."""
+    """Print a clean report."""
     print("══════════════════════════════════════")
     print("GCP IAM Security Audit Report")
     print(f"Project: {project_id}")
