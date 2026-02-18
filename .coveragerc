@@ -1,0 +1,4 @@
+[run]
+omit = 
+    scanner/gcp_scanner.py
+    scanner/__init__.py
