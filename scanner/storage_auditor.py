@@ -1,396 +1,211 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from scanner.storage_auditor import (
-    get_buckets,
-    get_bucket_iam_policy,
-    get_bucket_metadata,
-    check_public_access,
-    check_uniform_access,
-    check_versioning,
-    analyze_storage,
-    print_report
-)
+import json
+import subprocess
 
 
-class TestStorageBasicRisks:
-    """Tests for storage security misconfigurations"""
-
-    def test_detects_public_bucket_access(self):
-        """
-        GIVEN: A bucket grants access to allUsers
-        WHEN:  We analyze the buckets
-        THEN:  The auditor flags it as CRITICAL
-        """
-        fake_buckets = ["gs://test-bucket"]
-        
-        with patch('scanner.storage_auditor.get_bucket_iam_policy') as mock_get_policy:
-            mock_get_policy.return_value = {
-                "bindings": [
-                    {
-                        "role": "roles/storage.objectViewer",
-                        "members": ["allUsers"]
-                    }
-                ]
-            }
-            
-            findings = check_public_access(fake_buckets)
-            
-            assert len(findings) == 1
-            assert findings[0]["severity"] == "CRITICAL"
-            assert findings[0]["rule"] == "PUBLIC_BUCKET_ACCESS"
-            assert findings[0]["resource"] == "gs://test-bucket"
-            assert findings[0]["member"] == "allUsers"
-            assert findings[0]["role"] == "roles/storage.objectViewer"
-
-    def test_detects_uniform_access_disabled(self):
-        """
-        GIVEN: A bucket has uniform bucket-level access disabled
-        WHEN:  We analyze the buckets
-        THEN:  The auditor flags it as MEDIUM
-        """
-        fake_buckets = ["gs://test-bucket"]
-        
-        with patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
-            mock_get_metadata.return_value = {
-                "uniform_access": False,
-                "versioning": True
-            }
-            
-            findings = check_uniform_access(fake_buckets)
-            
-            assert len(findings) == 1
-            assert findings[0]["severity"] == "MEDIUM"
-            assert findings[0]["rule"] == "UNIFORM_ACCESS_DISABLED"
-            assert findings[0]["resource"] == "gs://test-bucket"
-
-    def test_detects_versioning_disabled(self):
-        """
-        GIVEN: A bucket has versioning disabled
-        WHEN:  We analyze the buckets
-        THEN:  The auditor flags it as MEDIUM
-        """
-        fake_buckets = ["gs://test-bucket"]
-        
-        with patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
-            mock_get_metadata.return_value = {
-                "uniform_access": True,
-                "versioning": False
-            }
-            
-            findings = check_versioning(fake_buckets)
-            
-            assert len(findings) == 1
-            assert findings[0]["severity"] == "MEDIUM"
-            assert findings[0]["rule"] == "VERSIONING_DISABLED"
-            assert findings[0]["resource"] == "gs://test-bucket"
+def get_buckets():
+    """
+    List all storage buckets in the current project.
+    Returns a list of bucket names.
+    """
+    result = subprocess.run(
+        ["gsutil", "ls"],
+        capture_output=True,
+        text=True
+    )
+    # gsutil ls returns: gs://bucket-name-1\ngs://bucket-name-2\n
+    buckets = [line.strip() for line in result.stdout.strip().split('\n') if line]
+    return buckets
 
 
-class TestStorageEdgeCases:
-    """Edge cases and validation tests"""
-
-    def test_empty_buckets_returns_no_findings(self):
-        """
-        GIVEN: No buckets exist (empty list)
-        WHEN:  We analyze them
-        THEN:  We get back an empty findings list, no crash
-        """
-        fake_buckets = []
-        
-        findings = analyze_storage(fake_buckets)
-        
-        assert len(findings) == 0
-
-    def test_secure_bucket_returns_no_finding(self):
-        """
-        GIVEN: A bucket with:
-              - No public access
-              - Uniform access enabled
-              - Versioning enabled
-        WHEN:  We analyze the buckets
-        THEN:  No findings — this is a legitimate, secure bucket
-        """
-        fake_buckets = ["gs://secure-bucket"]
-        
-        with patch('scanner.storage_auditor.get_bucket_iam_policy') as mock_get_policy, \
-             patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
-            
-            mock_get_policy.return_value = {
-                "bindings": [
-                    {
-                        "role": "roles/storage.objectViewer",
-                        "members": ["user:test@example.com"]
-                    }
-                ]
-            }
-            
-            mock_get_metadata.return_value = {
-                "uniform_access": True,
-                "versioning": True
-            }
-            
-            findings = analyze_storage(fake_buckets)
-            
-            assert len(findings) == 0
-
-    def test_public_access_multiple_members(self):
-        """
-        GIVEN: A bucket with multiple public members and roles
-        WHEN:  We analyze the buckets
-        THEN:  The auditor flags all public access findings
-        """
-        fake_buckets = ["gs://test-bucket"]
-        
-        with patch('scanner.storage_auditor.get_bucket_iam_policy') as mock_get_policy:
-            mock_get_policy.return_value = {
-                "bindings": [
-                    {
-                        "role": "roles/storage.objectViewer",
-                        "members": ["allUsers"]
-                    },
-                    {
-                        "role": "roles/storage.objectAdmin",
-                        "members": ["allAuthenticatedUsers"]
-                    }
-                ]
-            }
-            
-            findings = check_public_access(fake_buckets)
-            
-            assert len(findings) == 2
-            assert findings[0]["member"] == "allUsers"
-            assert findings[1]["member"] == "allAuthenticatedUsers"
-
-    def test_error_handling_skips_problem_buckets(self):
-        """
-        GIVEN: A bucket that causes an error when accessing
-        WHEN:  We analyze the buckets
-        THEN:  The auditor skips it without crashing
-        """
-        fake_buckets = ["gs://error-bucket", "gs://good-bucket"]
-        
-        with patch('scanner.storage_auditor.get_bucket_iam_policy') as mock_get_policy, \
-             patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
-            
-            # Configure mocks to raise exceptions for the error bucket
-            def policy_side_effect(bucket):
-                if bucket == "gs://error-bucket":
-                    raise Exception("Access denied")
-                return {"bindings": []}
-            
-            def metadata_side_effect(bucket):
-                if bucket == "gs://error-bucket":
-                    raise Exception("Access denied")
-                return {
-                    "uniform_access": False,
-                    "versioning": False
-                }
-            
-            mock_get_policy.side_effect = policy_side_effect
-            mock_get_metadata.side_effect = metadata_side_effect
-            
-            findings = analyze_storage(fake_buckets)
-            
-            # Should only have findings from the second bucket (uniform_access + versioning)
-            assert len(findings) == 2
-            
-            # Verify all findings are from the good bucket
-            for finding in findings:
-                assert finding["resource"] == "gs://good-bucket"
+def get_bucket_iam_policy(bucket):
+    """
+    Get the IAM policy for a specific bucket.
+    Returns a dict with 'bindings' key (similar to project IAM).
+    """
+    result = subprocess.run(
+        ["gsutil", "iam", "get", bucket],
+        capture_output=True,
+        text=True
+    )
+    return json.loads(result.stdout)
 
 
-class TestStorageHelperFunctions:
-    """Tests for helper functions (get_buckets, get_bucket_iam_policy, get_bucket_metadata)"""
-
-    @patch('scanner.storage_auditor.subprocess.run')
-    def test_get_buckets_success(self, mock_run):
-        """Test get_buckets successfully parses gsutil output"""
-        mock_result = MagicMock()
-        mock_result.stdout = "gs://bucket1\ngs://bucket2\n"
-        mock_result.stderr = ""
-        mock_run.return_value = mock_result
-        
-        buckets = get_buckets()
-        
-        assert buckets == ["gs://bucket1", "gs://bucket2"]
-        mock_run.assert_called_once_with(
-            ["gsutil", "ls"],
-            capture_output=True,
-            text=True
-        )
-
-    @patch('scanner.storage_auditor.subprocess.run')
-    def test_get_buckets_empty(self, mock_run):
-        """Test get_buckets with no buckets"""
-        mock_result = MagicMock()
-        mock_result.stdout = ""
-        mock_result.stderr = ""
-        mock_run.return_value = mock_result
-        
-        buckets = get_buckets()
-        
-        assert buckets == []
-
-    @patch('scanner.storage_auditor.subprocess.run')
-    def test_get_bucket_iam_policy(self, mock_run):
-        """Test get_bucket_iam_policy parses JSON correctly"""
-        mock_result = MagicMock()
-        mock_result.stdout = '{"bindings": [{"role": "test", "members": ["user:test@test.com"]}]}'
-        mock_result.stderr = ""
-        mock_run.return_value = mock_result
-        
-        policy = get_bucket_iam_policy("gs://test-bucket")
-        
-        assert policy["bindings"][0]["role"] == "test"
-        mock_run.assert_called_once_with(
-            ["gsutil", "iam", "get", "gs://test-bucket"],
-            capture_output=True,
-            text=True
-        )
-
-    @patch('scanner.storage_auditor.subprocess.run')
-    def test_get_bucket_metadata(self, mock_run):
-        """Test get_bucket_metadata returns correct metadata dict"""
-        mock_uniform_result = MagicMock()
-        mock_uniform_result.stdout = "Enabled"
-        mock_uniform_result.stderr = ""
-        
-        mock_versioning_result = MagicMock()
-        mock_versioning_result.stdout = "Enabled"
-        mock_versioning_result.stderr = ""
-        
-        mock_run.side_effect = [mock_uniform_result, mock_versioning_result]
-        
-        metadata = get_bucket_metadata("gs://test-bucket")
-        
-        assert metadata["uniform_access"] is True
-        assert metadata["versioning"] is True
-        assert mock_run.call_count == 2
-
-    @patch('scanner.storage_auditor.subprocess.run')
-    def test_get_bucket_metadata_disabled(self, mock_run):
-        """Test get_bucket_metadata when features are disabled"""
-        mock_uniform_result = MagicMock()
-        mock_uniform_result.stdout = "Disabled"
-        mock_uniform_result.stderr = ""
-        
-        mock_versioning_result = MagicMock()
-        mock_versioning_result.stdout = "Disabled"
-        mock_versioning_result.stderr = ""
-        
-        mock_run.side_effect = [mock_uniform_result, mock_versioning_result]
-        
-        metadata = get_bucket_metadata("gs://test-bucket")
-        
-        assert metadata["uniform_access"] is False
-        assert metadata["versioning"] is False
-
-
-class TestStorageErrorHandling:
-    """Additional tests for error handling coverage"""
+def get_bucket_metadata(bucket):
+    """
+    Get metadata for a bucket (uniform access, versioning, etc).
+    Returns a dict with bucket configuration.
+    """
+    result = subprocess.run(
+        ["gsutil", "uniformbucketlevelaccess", "get", bucket],
+        capture_output=True,
+        text=True
+    )
     
-    def test_uniform_access_error_handling(self):
-        """Test that check_uniform_access handles exceptions gracefully (covers lines 125-127)"""
-        fake_buckets = ["gs://error-bucket"]
-        
-        with patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
-            mock_get_metadata.side_effect = Exception("Access denied")
-            
-            findings = check_uniform_access(fake_buckets)
-            
-            assert len(findings) == 0
+    # Also check versioning
+    versioning_result = subprocess.run(
+        ["gsutil", "versioning", "get", bucket],
+        capture_output=True,
+        text=True
+    )
     
-    def test_versioning_error_handling(self):
-        """Test that check_versioning handles exceptions gracefully (covers lines 159-161)"""
-        fake_buckets = ["gs://error-bucket"]
-        
-        with patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
-            mock_get_metadata.side_effect = Exception("Access denied")
-            
-            findings = check_versioning(fake_buckets)
-            
-            assert len(findings) == 0
+    return {
+        "uniform_access": "enabled" in result.stdout.lower(),
+        "versioning": "enabled" in versioning_result.stdout.lower()
+    }
 
 
-class TestStorageReport:
-    """Tests for the print_report function"""
-
-    def test_print_report_with_findings(self, capsys):
-        """Test print_report outputs findings correctly"""
-        findings = [
-            {
-                "severity": "CRITICAL",
-                "rule": "PUBLIC_BUCKET_ACCESS",
-                "resource": "gs://test-bucket",
-                "member": "allUsers",
-                "role": "roles/storage.objectViewer",
-                "reason": "Bucket gs://test-bucket grants roles/storage.objectViewer to allUsers (public access)"
-            },
-            {
-                "severity": "MEDIUM",
-                "rule": "UNIFORM_ACCESS_DISABLED",
-                "resource": "gs://test-bucket",
-                "reason": "Bucket gs://test-bucket doesn't have uniform bucket-level access enabled."
-            }
-        ]
-        
-        print_report(findings)
-        captured = capsys.readouterr()
-        
-        assert "GCP Storage Security Audit Report" in captured.out
-        assert "[CRITICAL] PUBLIC_BUCKET_ACCESS" in captured.out
-        assert "[MEDIUM] UNIFORM_ACCESS_DISABLED" in captured.out
-        assert "Total findings: 2 (1 CRITICAL, 0 HIGH, 1 MEDIUM)" in captured.out
-
-    def test_print_report_empty_findings(self, capsys):
-        """Test print_report with no findings"""
-        findings = []
-        
-        print_report(findings)
-        captured = capsys.readouterr()
-        
-        assert "GCP Storage Security Audit Report" in captured.out
-        assert "Total findings: 0 (0 CRITICAL, 0 HIGH, 0 MEDIUM)" in captured.out
+PUBLIC_MEMBERS = ["allUsers", "allAuthenticatedUsers"]
 
 
-class TestStorageAnalyzeFunction:
-    """Tests for the analyze_storage master function"""
-
-    def test_analyze_storage_combines_all_findings(self):
-        """Test analyze_storage combines findings from all checks"""
-        fake_buckets = ["gs://test-bucket"]
-        
-        with patch('scanner.storage_auditor.check_public_access') as mock_public, \
-             patch('scanner.storage_auditor.check_uniform_access') as mock_uniform, \
-             patch('scanner.storage_auditor.check_versioning') as mock_versioning:
-            
-            mock_public.return_value = [{"rule": "PUBLIC_BUCKET_ACCESS"}]
-            mock_uniform.return_value = [{"rule": "UNIFORM_ACCESS_DISABLED"}]
-            mock_versioning.return_value = [{"rule": "VERSIONING_DISABLED"}]
-            
-            findings = analyze_storage(fake_buckets)
-            
-            assert len(findings) == 3
-            assert findings[0]["rule"] == "PUBLIC_BUCKET_ACCESS"
-            assert findings[1]["rule"] == "UNIFORM_ACCESS_DISABLED"
-            assert findings[2]["rule"] == "VERSIONING_DISABLED"
-
-
-class TestStorageMainBlock:
-    """Test the main block execution (covers lines 209-211)"""
+def check_public_access(buckets):
+    """
+    Rule 1: Flag any bucket that grants access to allUsers or allAuthenticatedUsers.
     
-    @patch('scanner.storage_auditor.get_buckets')
-    @patch('scanner.storage_auditor.analyze_storage')
-    @patch('scanner.storage_auditor.print_report')
-    def test_main_block_execution(self, mock_print, mock_analyze, mock_get_buckets):
-        """Test that the main block calls the expected functions"""
-        mock_get_buckets.return_value = ["gs://test-bucket"]
-        mock_analyze.return_value = [{"severity": "MEDIUM", "rule": "TEST"}]
+    Returns a list of findings.
+    """
+    findings = []
+
+    for bucket in buckets:
+        try:
+            policy = get_bucket_iam_policy(bucket)
+            bindings = policy.get("bindings", [])
+            
+            for binding in bindings:
+                members = binding.get("members", [])
+                role = binding.get("role", "")
+                
+                for member in members:
+                    if member in PUBLIC_MEMBERS:
+                        findings.append({
+                            "severity": "CRITICAL",
+                            "rule": "PUBLIC_BUCKET_ACCESS",
+                            "resource": bucket,
+                            "member": member,
+                            "role": role,
+                            "reason": f"Bucket {bucket} grants {role} to {member} (public access)"
+                        })
+        except Exception as e:
+            # Skip buckets we can't access
+            continue
+
+    return findings
+
+
+def check_uniform_access(buckets):
+    """
+    Rule 2: Flag buckets that don't have uniform bucket-level access enabled.
+    
+    Uniform access means: only IAM policies control access, not legacy ACLs.
+    Without it, you have two security systems to manage = confusion + risk.
+    
+    YOUR JOB:
+    - Loop through buckets
+    - Call get_bucket_metadata(bucket) to get metadata
+    - Check if metadata["uniform_access"] is False
+    - If False → append a finding
+    - Severity: "MEDIUM" (not as urgent as public access, but bad practice)
+    - Rule name: "UNIFORM_ACCESS_DISABLED"
+    
+    Hints:
+    - Wrap in try/except to skip buckets you can't access
+    - Use the same pattern as check_public_access
+    """
+    findings = []
+
+    for bucket in buckets:
+        try:
+            metadata = get_bucket_metadata(bucket)
+            if not metadata["uniform_access"]:
+                findings.append({
+                    "severity": "MEDIUM",
+                    "rule": "UNIFORM_ACCESS_DISABLED",
+                    "resource": bucket,
+                    "reason": f"Bucket {bucket} doesn't have a uniform bucket-level access enabled."
+                })
+        except Exception as e:
+            # skip buckets you can't access
+            continue
+
+    return findings
+
+
+def check_versioning(buckets):
+    """
+    Rule 3: Flag buckets that don't have versioning enabled.
+    
+    Versioning = keep old versions of files when they're overwritten or deleted.
+    Without it: ransomware deletes your files → they're gone forever.
+    
+    YOUR JOB:
+    - Loop through buckets
+    - Call get_bucket_metadata(bucket)
+    - Check if metadata["versioning"] is False
+    - If False → append a finding
+    - Severity: "MEDIUM"
+    - Rule name: "VERSIONING_DISABLED"
+    """
+    findings = []
+
+    for bucket in buckets:
+        try:
+            metadata = get_bucket_metadata(bucket)
+            if not metadata["versioning"]:
+                findings.append({
+                    "severity": "MEDIUM",
+                    "rule": "VERSIONING_DISABLED",
+                    "resource": bucket,
+                    "reason": f"Bucket {bucket} doesn't have versioning enabled."
+                })
+        except Exception as e:
+            # skip buckets you can't access
+            continue
+
+    return findings
+
+
+def analyze_storage(buckets):
+    """
+    Master function. Runs all checks and returns combined findings.
+    """
+    findings = []
+    findings.extend(check_public_access(buckets))
+    findings.extend(check_uniform_access(buckets))
+    findings.extend(check_versioning(buckets))
+    return findings
+
+
+def print_report(findings):
+    print("══════════════════════════════════════")
+    print("GCP Storage Security Audit Report")
+    print("══════════════════════════════════════\n")
+
+    count_critical = 0
+    count_high = 0
+    count_medium = 0
+
+    for finding in findings:
+        print(f"[{finding['severity']}] {finding['rule']}")
+        print(f"Resource : {finding['resource']}")
         
-        # Execute the main block by importing the module
-        import scanner.storage_auditor
-        import importlib
-        importlib.reload(scanner.storage_auditor)
+        if "member" in finding:
+            print(f"Member   : {finding['member']}")
+        if "role" in finding:
+            print(f"Role     : {finding['role']}")
         
-        mock_get_buckets.assert_called_once()
-        mock_analyze.assert_called_once_with(["gs://test-bucket"])
-        mock_print.assert_called_once_with([{"severity": "MEDIUM", "rule": "TEST"}])
+        print(f"Reason   : {finding['reason']}")
+        print("──────────────────────────────────────")
+
+        if finding["severity"] == "CRITICAL":
+            count_critical += 1
+        elif finding["severity"] == "HIGH":
+            count_high += 1
+        elif finding["severity"] == "MEDIUM":
+            count_medium += 1
+
+    total = count_critical + count_high + count_medium
+    print(f"\nTotal findings: {total} ({count_critical} CRITICAL, {count_high} HIGH, {count_medium} MEDIUM)")
+
+if __name__ == "__main__":
+    buckets = get_buckets()
+    findings = analyze_storage(buckets)
+    print_report(findings)
