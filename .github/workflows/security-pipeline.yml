@@ -56,10 +56,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Check for vulnerable dependencies
+      - name: Install dependencies & check for vulnerable dependencies
         run: pip install safety && safety check -r requirements.txt
 
       - name: Enforce coverage threshold
