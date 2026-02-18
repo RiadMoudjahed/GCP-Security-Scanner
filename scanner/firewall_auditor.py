@@ -136,16 +136,15 @@ def print_report(findings):
 
     for finding in findings:
         print(f"[{finding['severity']}] {finding['rule']}")
-        print(f"Resource: {finding['resource']}")
-
+        print(f"Resource : {finding['resource']}")
+        
         if "source" in finding:
-            print(f"Source: {finding['source']}")
-
+            print(f"Source   : {finding['source']}")
         if "ports" in finding:
             ports_str = ", ".join(map(str, finding["ports"]))
-            print(f"Ports: {ports_str}")
-
-        print(f"Reason: {reason}")
+            print(f"Ports    : {ports_str}")
+        
+        print(f"Reason   : {finding['reason']}")
         print("──────────────────────────────────────")
 
         if finding["severity"] == "MEDIUM":
