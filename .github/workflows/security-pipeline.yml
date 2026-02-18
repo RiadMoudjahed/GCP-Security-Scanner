@@ -1,33 +1,28 @@
 name: GCP Security Scanner CI
-
 on:
   push:
     branches: [ main, dev ]
   pull_request:
     branches: [ main ]
-
 jobs:
   # ─────────────────────────────────────────
   # JOB 1: Security Scan (Bandit)
-  # Scans Python code for known security issues
-  # If this fails, Job 2 will NOT run
   # ─────────────────────────────────────────
   security-scan:
     name: Bandit Security Scan
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
+      
       - name: Install Bandit
         run: pip install bandit==1.7.7
-
+      
       - name: Run Bandit
         run: |
           bandit -r scanner/ \
@@ -35,31 +30,51 @@ jobs:
             --confidence-level medium \
             -f txt \
             --exit-zero
-        # --exit-zero means: report issues but don't fail the pipeline YET
-        # Once you're comfortable, remove --exit-zero to enforce it strictly
 
   # ─────────────────────────────────────────
-  # JOB 2: Tests (Pytest)
-  # Only runs if Job 1 (Bandit) passes
+  # JOB 2: Dependency Security Scan
   # ─────────────────────────────────────────
-  run-tests:
-    name: Pytest + Coverage
+  dependency-scan:
+    name: Dependency Vulnerability Check
     runs-on: ubuntu-latest
-    needs: security-scan      # ← This is the dependency. Job 2 waits for Job 1.
-
+    needs: security-scan
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      
+      - name: Install Safety
+        run: pip install safety
+      
+      - name: Check for vulnerable dependencies
+        run: safety check -r requirements.txt --continue-on-error
+        # --continue-on-error: report vulnerabilities but don't fail pipeline
+        # Remove this flag once you've reviewed and accepted/fixed findings
 
-      - name: Install dependencies & check for vulnerable dependencies
-        run: pip install safety && safety check -r requirements.txt
-
-      - name: Enforce coverage threshold
+  # ─────────────────────────────────────────
+  # JOB 3: Tests (Pytest)
+  # ─────────────────────────────────────────
+  run-tests:
+    name: Pytest + Coverage
+    runs-on: ubuntu-latest
+    needs: [security-scan, dependency-scan]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Run tests with coverage
         run: |
           pytest tests/ \
             --cov=scanner \
