@@ -23,7 +23,6 @@ class TestStorageBasicRisks:
         """
         fake_buckets = ["gs://test-bucket"]
         
-        # Mock the get_bucket_iam_policy function
         with patch('scanner.storage_auditor.get_bucket_iam_policy') as mock_get_policy:
             mock_get_policy.return_value = {
                 "bindings": [
@@ -51,7 +50,6 @@ class TestStorageBasicRisks:
         """
         fake_buckets = ["gs://test-bucket"]
         
-        # Mock the get_bucket_metadata function
         with patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
             mock_get_metadata.return_value = {
                 "uniform_access": False,
@@ -73,7 +71,6 @@ class TestStorageBasicRisks:
         """
         fake_buckets = ["gs://test-bucket"]
         
-        # Mock the get_bucket_metadata function
         with patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
             mock_get_metadata.return_value = {
                 "uniform_access": True,
@@ -114,7 +111,6 @@ class TestStorageEdgeCases:
         """
         fake_buckets = ["gs://secure-bucket"]
         
-        # Mock both the IAM policy and metadata functions
         with patch('scanner.storage_auditor.get_bucket_iam_policy') as mock_get_policy, \
              patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
             
@@ -175,7 +171,6 @@ class TestStorageEdgeCases:
         with patch('scanner.storage_auditor.get_bucket_iam_policy') as mock_get_policy, \
              patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
             
-            # Configure mocks to raise exceptions for the error bucket
             def policy_side_effect(bucket):
                 if bucket == "gs://error-bucket":
                     raise Exception("Access denied")
@@ -254,12 +249,10 @@ class TestStorageHelperFunctions:
     @patch('scanner.storage_auditor.subprocess.run')
     def test_get_bucket_metadata(self, mock_run):
         """Test get_bucket_metadata returns correct metadata dict"""
-        # Mock uniform access response
         mock_uniform_result = MagicMock()
         mock_uniform_result.stdout = "Enabled"
         mock_uniform_result.stderr = ""
         
-        # Mock versioning response
         mock_versioning_result = MagicMock()
         mock_versioning_result.stdout = "Enabled"
         mock_versioning_result.stderr = ""
@@ -275,12 +268,10 @@ class TestStorageHelperFunctions:
     @patch('scanner.storage_auditor.subprocess.run')
     def test_get_bucket_metadata_disabled(self, mock_run):
         """Test get_bucket_metadata when features are disabled"""
-        # Mock uniform access response
         mock_uniform_result = MagicMock()
         mock_uniform_result.stdout = "Disabled"
         mock_uniform_result.stderr = ""
         
-        # Mock versioning response
         mock_versioning_result = MagicMock()
         mock_versioning_result.stdout = "Disabled"
         mock_versioning_result.stderr = ""
@@ -291,6 +282,32 @@ class TestStorageHelperFunctions:
         
         assert metadata["uniform_access"] is False
         assert metadata["versioning"] is False
+
+
+class TestStorageErrorHandling:
+    """Additional tests for error handling coverage"""
+    
+    def test_uniform_access_error_handling(self):
+        """Test that check_uniform_access handles exceptions gracefully (covers lines 125-127)"""
+        fake_buckets = ["gs://error-bucket"]
+        
+        with patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
+            mock_get_metadata.side_effect = Exception("Access denied")
+            
+            findings = check_uniform_access(fake_buckets)
+            
+            assert len(findings) == 0
+    
+    def test_versioning_error_handling(self):
+        """Test that check_versioning handles exceptions gracefully (covers lines 159-161)"""
+        fake_buckets = ["gs://error-bucket"]
+        
+        with patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
+            mock_get_metadata.side_effect = Exception("Access denied")
+            
+            findings = check_versioning(fake_buckets)
+            
+            assert len(findings) == 0
 
 
 class TestStorageReport:
@@ -355,31 +372,6 @@ class TestStorageAnalyzeFunction:
             assert findings[0]["rule"] == "PUBLIC_BUCKET_ACCESS"
             assert findings[1]["rule"] == "UNIFORM_ACCESS_DISABLED"
             assert findings[2]["rule"] == "VERSIONING_DISABLED"
-
-class TestStorageErrorHandling:
-    """Additional tests for error handling coverage"""
-    
-    def test_uniform_access_error_handling(self):
-        """Test that check_uniform_access handles exceptions gracefully"""
-        fake_buckets = ["gs://error-bucket"]
-        
-        with patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
-            mock_get_metadata.side_effect = Exception("Access denied")
-            
-            findings = check_uniform_access(fake_buckets)
-            
-            assert len(findings) == 0  # Should skip error bucket
-    
-    def test_versioning_error_handling(self):
-        """Test that check_versioning handles exceptions gracefully"""
-        fake_buckets = ["gs://error-bucket"]
-        
-        with patch('scanner.storage_auditor.get_bucket_metadata') as mock_get_metadata:
-            mock_get_metadata.side_effect = Exception("Access denied")
-            
-            findings = check_versioning(fake_buckets)
-            
-            assert len(findings) == 0  # Should skip error bucket
 
 
 class TestStorageMainBlock:
