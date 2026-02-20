@@ -52,7 +52,7 @@ jobs:
 
       - name: Run Safety scan with direct CLI
         env:
-          SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}
+          SAFETY_API_KEY: ${{ secrets.SAFETY_API_TOKEN }}
         run: safety scan --continue-on-error
         # --continue-on-error: report vulnerabilities but don't fail pipeline
         # Remove this flag once you've reviewed and accepted/fixed findings
