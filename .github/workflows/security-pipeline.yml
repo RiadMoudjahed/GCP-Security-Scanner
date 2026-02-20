@@ -45,7 +45,7 @@ jobs:
       - name: Run Safety CLI to check for vulnerabilities
         uses: pyupio/safety-action@v1
         with:
-          api-key: ${{ secrets.5dc0bcd7-6a2f-4668-b1f0-087f089b60b4 }}
+          api-key: ${{ secrets.SAFETY_API_KEY }}
           command: scan
           args: --continue-on-error
         # --continue-on-error: report vulnerabilities but don't fail pipeline
