@@ -112,6 +112,7 @@ gcp-security-scanner/
 │   └── test_storage_auditor.py
 ├── .github/workflows/
 │   └── security-pipeline.yml  # DevSecOps CI/CD pipeline
+├── .coveragerc
 └── requirements.txt
 ```
 
