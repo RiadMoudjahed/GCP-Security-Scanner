@@ -2,8 +2,7 @@
 
 # GCP Security Scanner
 
- <img width="48" height="48" alt="Image" src="https://github.com/user-attachments/assets/0b5c919d-5228-4dff-a2fe-45b14be8c0d1" />  
-
+<img width="64" height="64" alt="Image" src="https://github.com/user-attachments/assets/f445150d-841c-4e3f-8338-414db3b6c035" /> <img width="64" height="64" alt="Image" src="https://github.com/user-attachments/assets/849788c3-a893-4dbf-848a-d5b0e7672484" />
 
 A Python-based security auditing tool that scans Google Cloud Platform projects for common misconfigurations across IAM, Firewall, and Storage resources.
 
