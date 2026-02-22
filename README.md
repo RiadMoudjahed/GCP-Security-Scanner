@@ -2,11 +2,14 @@
 
 # GCP Security Scanner
 
+ <img width="48" height="48" alt="Image" src="https://github.com/user-attachments/assets/0b5c919d-5228-4dff-a2fe-45b14be8c0d1" />  
+
+
 A Python-based security auditing tool that scans Google Cloud Platform projects for common misconfigurations across IAM, Firewall, and Storage resources.
 
 ![CI/CD Pipeline](https://github.com/RiadMoudjahed/gcp-security-scanner/actions/workflows/security-pipeline.yml/badge.svg?branch=main)
 
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-MIT-green) 
 
 </div>
 
