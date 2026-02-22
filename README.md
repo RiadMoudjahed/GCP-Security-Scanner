@@ -12,7 +12,7 @@ A Python-based security auditing tool that scans Google Cloud Platform projects 
 
 
 
-## 🎯 Overview
+## Overview
 
 This scanner identifies **9 critical security risks** across GCP infrastructure:
 
@@ -33,7 +33,7 @@ This scanner identifies **9 critical security risks** across GCP infrastructure:
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 ```bash
@@ -70,7 +70,7 @@ python scanner/gcp_scanner.py
 
 ---
 
-## 📊 Sample Output
+## Sample Output
 
 ### IAM Findings
 ```
@@ -100,7 +100,7 @@ Reason   : Bucket gs://my-public-bucket grants roles/storage.objectViewer to all
 
 ---
 
-## 🛠️ Architecture
+## Architecture
 ```
 gcp-security-scanner/
 ├── scanner/
@@ -120,7 +120,7 @@ gcp-security-scanner/
 
 ---
 
-## 🔒 Security Rules Explained
+## Security Rules Explained
 
 ### Why These Misconfigurations Matter
 
@@ -141,7 +141,7 @@ Ransomware deletes files → they're gone forever. Versioning = recovery safety 
 
 ---
 
-## 🧪 Testing
+## Testing
 
 **16 automated tests** with 70%+ code coverage enforced by CI/CD.
 ```bash
@@ -156,7 +156,7 @@ pytest tests/ --cov=scanner --cov-report=term-missing -v
 
 ---
 
-## 🔄 DevSecOps Pipeline
+## DevSecOps Pipeline
 
 Every push triggers a **multi-stage security pipeline**:
 
@@ -186,7 +186,7 @@ View pipeline: [GitHub Actions](.github/workflows/security-pipeline.yml)
 
 ---
 
-## 📈 Real-World Results
+## Real-World Results
 
 Tested on live GCP lab environments:
 
@@ -203,7 +203,7 @@ Tested on live GCP lab environments:
 
 ---
 
-## 🎓 Learning Outcomes
+## Learning Outcomes
 
 This project demonstrates:
 
@@ -227,7 +227,7 @@ This project demonstrates:
 
 ---
 
-## 🚧 Future Enhancements
+## Future Enhancements
 
 - [ ] Compute Engine auditor (public IPs, SSH keys, OS patch status)
 - [ ] JSON/CSV export for findings
@@ -239,13 +239,13 @@ This project demonstrates:
 
 ---
 
-## 📄 License
+## License
 
 MIT License - feel free to use this in your own security projects.
 
 ---
 
-## 👤 Author
+## Author
 
 **Riad Moudjahed** 
 
